@@ -30,10 +30,10 @@ static inline uint32_t rotl(uint32_t x, size_t b) {
 static void permute(uint32_t v[4]) {
   int i;
   for (i = 0; i != CHASKEY_ROUNDS; i++) {
-    v[0] += v[1]; v[1]=rotl(v[1], 5); v[1] ^= v[0]; v[0]=rotl(v[0],16); \
-    v[2] += v[3]; v[3]=rotl(v[3], 8); v[3] ^= v[2]; \
-    v[0] += v[3]; v[3]=rotl(v[3],13); v[3] ^= v[0]; \
-    v[2] += v[1]; v[1]=rotl(v[1], 7); v[1] ^= v[2]; v[2]=rotl(v[2],16); \
+    v[0] += v[1]; v[1]=rotl(v[1], 5); v[1] ^= v[0]; v[0]=rotl(v[0],16);
+    v[2] += v[3]; v[3]=rotl(v[3], 8); v[3] ^= v[2];
+    v[0] += v[3]; v[3]=rotl(v[3],13); v[3] ^= v[0];
+    v[2] += v[1]; v[1]=rotl(v[1], 7); v[1] ^= v[2]; v[2]=rotl(v[2],16);
   }
 }
 
