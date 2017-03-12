@@ -2,11 +2,9 @@
 
 ![Travis CI](https://travis-ci.org/AerialX/chaskey.svg)
 
-http://mouha.be/chaskey/
-
-A C implementation of the Chaskey MAC algorithm. Just a modification of the
-reference implementation with a focus on improving usability and removing
-unaligned accesses.
+A C implementation of the [Chaskey MAC algorithm](http://mouha.be/chaskey/).
+This is just a modification of the reference implementation with a focus on
+improving usability and removing unaligned accesses.
 
 ## Endianness Note
 
