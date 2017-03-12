@@ -1,7 +1,8 @@
 /*
-   Chaskey reference C implementation (size optimized)
+   Chaskey C implementation
 
    Written in 2014 by Nicky Mouha, based on SipHash
+   Modified in 2017 by Aaron Lindsay
 
    To the extent possible under law, the author has dedicated all copyright
    and related and neighboring rights to this software to the public domain
@@ -12,6 +13,7 @@
    
    NOTE: This implementation assumes a little-endian architecture.
 */
+
 #include "chaskey.h"
 #if CHASKEY_DEBUG || CHASKEY_TEST
 #include <stdio.h>
@@ -20,21 +22,21 @@
 #include <assert.h>
 
 static inline uint32_t rotl(uint32_t x, size_t b) {
-  return (uint32_t)( ((x) >> (32 - (b))) | ( (x) << (b)) );
+  return (uint32_t)((x >> (32 - b)) | (x << b));
 }
 
 static void permute(uint32_t v[4]) {
   int i;
   for (i = 0; i != CHASKEY_ROUNDS; i++) {
-    v[0] += v[1]; v[1]=rotl(v[1], 5); v[1] ^= v[0]; v[0]=rotl(v[0],16);
-    v[2] += v[3]; v[3]=rotl(v[3], 8); v[3] ^= v[2];
-    v[0] += v[3]; v[3]=rotl(v[3],13); v[3] ^= v[0];
-    v[2] += v[1]; v[1]=rotl(v[1], 7); v[1] ^= v[2]; v[2]=rotl(v[2],16);
+    v[0] += v[1]; v[1] = rotl(v[1], 5); v[1] ^= v[0]; v[0] = rotl(v[0], 16);
+    v[2] += v[3]; v[3] = rotl(v[3], 8); v[3] ^= v[2];
+    v[0] += v[3]; v[3] = rotl(v[3], 13); v[3] ^= v[0];
+    v[2] += v[1]; v[1] = rotl(v[1], 7); v[1] ^= v[2]; v[2] = rotl(v[2], 16);
   }
 }
 
 static void timestwo(uint32_t out[4], const uint32_t in[4]) {
-  const volatile uint32_t C[2] = { 0x00, 0x87 };
+  const uint32_t C[2] = { 0x00, 0x87 };
   out[0] = (in[0] << 1) ^ C[in[3] >> 31];
   out[1] = (in[1] << 1) | (in[0] >> 31);
   out[2] = (in[2] << 1) | (in[1] >> 31);
@@ -61,6 +63,15 @@ void chaskey_init(ChaskeyContext* context, const uint32_t k[4], const uint32_t k
   memcpy(context->k1, k1, sizeof(context->k1));
   memcpy(context->k2, k2, sizeof(context->k2));
   context->len = 0;
+}
+
+static inline void chaskey_bswap(uint32_t l[4]) {
+#if defined(__BYTE_ORDER__) && (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+  size_t i;
+  for (i = 0; i < 4; i++) {
+    l[i] = __builtin_bswap32(l[i]);
+  }
+#endif
 }
 
 static void chaskey_mix(ChaskeyContext* context, const uint32_t* l) {
@@ -94,6 +105,8 @@ void chaskey_process(ChaskeyContext* context, const uint8_t* m, size_t len) {
       printf("(%3zu) v[3] %08X\n", context->len, context->tag[3]);
       printf("(%3zu) compress %08X %08X %08X %08X\n", context->len, context->m.u32[0], context->m.u32[1], context->m.u32[2], context->m.u32[3]);
 #endif
+
+      chaskey_bswap(context->m.u32);
       chaskey_mix(context, context->m.u32);
     }
   }
@@ -118,6 +131,7 @@ void chaskey_finish(ChaskeyContext* context) {
     printf("(%3zu) last block %08X %08X %08X %08X\n", context->len, context->m.u32[0], context->m.u32[1], context->m.u32[2], context->m.u32[3]);
 #endif
 
+    chaskey_bswap(context->m.u32);
     chaskey_mix(context, context->m.u32);
   }
 
@@ -133,6 +147,7 @@ void chaskey_finish(ChaskeyContext* context) {
 #endif
 
   chaskey_mix(context, l);
+  chaskey_bswap(context->tag);
 }
 
 const uint8_t* chaskey_tag(ChaskeyContext* context) {
@@ -286,12 +301,14 @@ int test_vectors() {
   uint8_t tag[16];
   uint32_t k[4] = { 0x833D3433, 0x009F389F, 0x2398E64F, 0x417ACF39 };
   uint32_t k1[4], k2[4];
+  uint32_t vector[4];
   int i;
   int ok = 1;
   uint32_t taglen = 16;
 
   /* key schedule */
-  chaskey_subkeys(k1,k2,k);
+  chaskey_subkeys(k1, k2, k);
+
 #if CHASKEY_DEBUG
   printf("K0 %08X %08X %08X %08X\n", k[0], k[1], k[2], k[3]);
   printf("K1 %08X %08X %08X %08X\n", k1[0], k1[1], k1[2], k1[3]);
@@ -304,7 +321,9 @@ int test_vectors() {
     
     chaskey(tag, taglen, m, i, k, k1, k2);
 
-    if (memcmp( tag, vectors[i], taglen )) {
+    memcpy(vector, vectors[i], sizeof(vector));
+    chaskey_bswap(vector);
+    if (memcmp(tag, vector, taglen)) {
       printf("test vector failed for %d-byte message\n", i);
       ok = 0;
     }
