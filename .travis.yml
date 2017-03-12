@@ -2,12 +2,13 @@ language: c
 sudo: false
 os:
 - linux
+- osx
 env:
   matrix:
   - CHASKEY_ROUNDS=8
   - CHASKEY_ROUNDS=12
 before_script:
-- export CFLAGS="-DCHASKEY_ROUNDS=$CHASKEY_ROUNDS -DCHASKEY_TEST=1 -DCHASKEY_DEBUG=1"
-- gcc $CFLAGS chaskey.c -o chaskey
+- CFLAGS=(-Wall -DCHASKEY_ROUNDS=$CHASKEY_ROUNDS -DCHASKEY_TEST=1 -DCHASKEY_DEBUG=1)
+- gcc "${CFLAGS[@]}" chaskey.c -o chaskey
 script:
 - ./chaskey

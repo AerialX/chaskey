@@ -12,16 +12,12 @@
    
    NOTE: This implementation assumes a little-endian architecture.
 */
-#include <stdint.h>
+#include "chaskey.h"
 #if CHASKEY_DEBUG || CHASKEY_TEST
 #include <stdio.h>
 #endif
 #include <string.h>
 #include <assert.h>
-
-#ifndef CHASKEY_ROUNDS
-#define CHASKEY_ROUNDS 8
-#endif
 
 static inline uint32_t rotl(uint32_t x, size_t b) {
   return (uint32_t)( ((x) >> (32 - (b))) | ( (x) << (b)) );
@@ -51,86 +47,96 @@ void chaskey_subkeys(uint32_t k1[4], uint32_t k2[4], const uint32_t k[4]) {
 }
 
 void chaskey(uint8_t *tag, const size_t taglen, const uint8_t *m, const size_t mlen, const uint32_t k[4], const uint32_t k1[4], const uint32_t k2[4]) {
+  assert(taglen <= CHASKEY_TAG_SIZE);
 
-  const uint8_t *end;
-  const uint32_t *l;
-  union { uint32_t u32[4]; uint8_t u8[16]; } M;
-  uint32_t v[4];
-  
+  ChaskeyContext context;
+  chaskey_init(&context, k, k1, k2);
+  chaskey_process(&context, m, mlen);
+  chaskey_finish(&context);
+  memcpy(tag, chaskey_tag(&context), taglen);
+}
+
+void chaskey_init(ChaskeyContext* context, const uint32_t k[4], const uint32_t k1[4], const uint32_t k2[4]) {
+  memcpy(context->tag, k, sizeof(context->tag));
+  memcpy(context->k1, k1, sizeof(context->k1));
+  memcpy(context->k2, k2, sizeof(context->k2));
+  context->len = 0;
+}
+
+static void chaskey_mix(ChaskeyContext* context, const uint32_t* l) {
   size_t i;
-  
-  assert(taglen <= sizeof(v));
+  for (i = 0; i < 4; i++) {
+    context->tag[i] ^= l[i];
+  }
+}
 
-  v[0] = k[0];
-  v[1] = k[1];
-  v[2] = k[2];
-  v[3] = k[3];
+void chaskey_process(ChaskeyContext* context, const uint8_t* m, size_t len) {
+  size_t i;
+  size_t blocklen;
 
-  if (mlen != 0) {
-    end = m + ((mlen - 1) & 0xF0); /* pointer to last message block */
-    for ( ; m != end; m += sizeof(M) ) {
-      memcpy(M.u8, m, sizeof(M));
-#if CHASKEY_DEBUG
-      printf("(%3d) v[0] %08X\n", mlen, v[0]);
-      printf("(%3d) v[1] %08X\n", mlen, v[1]);
-      printf("(%3d) v[2] %08X\n", mlen, v[2]);
-      printf("(%3d) v[3] %08X\n", mlen, v[3]);
-      printf("(%3d) compress %08X %08X %08X %08X\n", mlen, M.u32[0], M.u32[1], M.u32[2], M.u32[3]);
-#endif
-      v[0] ^= M.u32[0];
-      v[1] ^= M.u32[1];
-      v[2] ^= M.u32[2];
-      v[3] ^= M.u32[3];
-      permute(v);
+  for (i = context->len & (CHASKEY_TAG_SIZE - 1); len > 0; i = 0) {
+    if (i == 0 && context->len > 0) {
+      permute(context->tag);
     }
-  } else {
-    end = m;
-  }
 
-  i = mlen & 0xF;
-  if ((mlen != 0) && (i == 0)) {
-    l = k1;
-    memcpy(M.u8, end, sizeof(M));
-  } else {
-    l = k2;
-    memcpy(M.u8, end, i);
-    M.u8[i++] = 0x01; /* padding bit */
-    memset(M.u8 + i, 0, sizeof(M) - i);
+    blocklen = CHASKEY_TAG_SIZE - i;
+    blocklen = (len >= blocklen ? blocklen : len);
+    memcpy(context->m.u8 + i, m, blocklen);
+    context->len += blocklen;
+    len -= blocklen;
+    m += blocklen;
+
+    if (i + blocklen == CHASKEY_TAG_SIZE) {
+#if CHASKEY_DEBUG
+      printf("(%3zu) v[0] %08X\n", context->len, context->tag[0]);
+      printf("(%3zu) v[1] %08X\n", context->len, context->tag[1]);
+      printf("(%3zu) v[2] %08X\n", context->len, context->tag[2]);
+      printf("(%3zu) v[3] %08X\n", context->len, context->tag[3]);
+      printf("(%3zu) compress %08X %08X %08X %08X\n", context->len, context->m.u32[0], context->m.u32[1], context->m.u32[2], context->m.u32[3]);
+#endif
+      chaskey_mix(context, context->m.u32);
+    }
   }
+}
+
+void chaskey_finish(ChaskeyContext* context) {
+  const uint32_t* l;
+
+  size_t i = context->len & (CHASKEY_TAG_SIZE - 1);
+  if ((context->len != 0) && (i == 0)) {
+    l = context->k1;
+  } else {
+    l = context->k2;
+    context->m.u8[i++] = 0x01; /* padding bit */
+    memset(context->m.u8 + i, 0, sizeof(context->m) - i);
 
 #if CHASKEY_DEBUG
-  printf("(%3d) v[0] %08X\n", mlen, v[0]);
-  printf("(%3d) v[1] %08X\n", mlen, v[1]);
-  printf("(%3d) v[2] %08X\n", mlen, v[2]);
-  printf("(%3d) v[3] %08X\n", mlen, v[3]);
-  printf("(%3d) last block %08X %08X %08X %08X\n", mlen, M.u32[0], M.u32[1], M.u32[2], M.u32[3]);
+    printf("(%3zu) v[0] %08X\n", context->len, context->tag[0]);
+    printf("(%3zu) v[1] %08X\n", context->len, context->tag[1]);
+    printf("(%3zu) v[2] %08X\n", context->len, context->tag[2]);
+    printf("(%3zu) v[3] %08X\n", context->len, context->tag[3]);
+    printf("(%3zu) last block %08X %08X %08X %08X\n", context->len, context->m.u32[0], context->m.u32[1], context->m.u32[2], context->m.u32[3]);
 #endif
-  v[0] ^= M.u32[0];
-  v[1] ^= M.u32[1];
-  v[2] ^= M.u32[2];
-  v[3] ^= M.u32[3];
 
-  v[0] ^= l[0];
-  v[1] ^= l[1];
-  v[2] ^= l[2];
-  v[3] ^= l[3];
+    chaskey_mix(context, context->m.u32);
+  }
 
-  permute(v);
+  chaskey_mix(context, l);
+
+  permute(context->tag);
 
 #if CHASKEY_DEBUG
-  printf("(%3d) v[0] %08X\n", mlen, v[0]);
-  printf("(%3d) v[1] %08X\n", mlen, v[1]);
-  printf("(%3d) v[2] %08X\n", mlen, v[2]);
-  printf("(%3d) v[3] %08X\n", mlen, v[3]);
+  printf("(%3zu) v[0] %08X\n", context->len, context->tag[0]);
+  printf("(%3zu) v[1] %08X\n", context->len, context->tag[1]);
+  printf("(%3zu) v[2] %08X\n", context->len, context->tag[2]);
+  printf("(%3zu) v[3] %08X\n", context->len, context->tag[3]);
 #endif
 
-  v[0] ^= l[0];
-  v[1] ^= l[1];
-  v[2] ^= l[2];
-  v[3] ^= l[3];
+  chaskey_mix(context, l);
+}
 
-  memcpy(tag,v,taglen);
-
+const uint8_t* chaskey_tag(ChaskeyContext* context) {
+  return (const void*)context->tag;
 }
 
 #if CHASKEY_TEST
