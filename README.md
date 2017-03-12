@@ -1,5 +1,7 @@
 # chaskey
 
+![Travis CI](https://travis-ci.org/AerialX/chaskey.svg)
+
 http://mouha.be/chaskey/
 
 A C implementation of the Chaskey MAC algorithm. Just a modification of the
