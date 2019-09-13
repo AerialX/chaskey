@@ -71,6 +71,8 @@ static inline void chaskey_bswap(uint32_t l[4]) {
   for (i = 0; i < 4; i++) {
     l[i] = __builtin_bswap32(l[i]);
   }
+#else
+  (void)l;
 #endif
 }
 
